@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Accupass 企業級安全報到系統</title>
+    
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f0f2f5; color: #333; padding-bottom: 50px; }
+        .container { padding: 15px; max-width: 600px; margin: auto; }
+        
+        /* 登入畫面樣式 */
+        #login-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background: #fff; padding: 20px; box-sizing: border-box; }
+        #login-screen h1 { color: #1a73e8; margin-bottom: 20px; font-size: 24px; }
+        .login-input { width: 100%; max-width: 300px; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+        
+        /* 主程式畫面隱藏 */
+        #app-screen { display: none; }
+        
+        /* 頂部導航 & 登出 */
+        .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .user-info { font-size: 12px; color: #666; }
+        .btn-logout { background: #dc3545; color: white; padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+
+        /* 統計與區塊 */
+        .stats-bar { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; padding: 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-around; text-align: center; box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3); }
+        .stats-item div:first-child { font-size: 12px; opacity: 0.9; margin-bottom: 4px; }
+        .stats-item div:last-child { font-size: 24px; font-weight: bold; }
+        .section { background: white; padding: 15px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        h2 { font-size: 16px; color: #444; margin: 0 0 12px 0; display: flex; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        h2::before { content: "•"; color: #1a73e8; font-size: 24px; margin-right: 8px; }
+
+        /* 表單與掃描器 */
+        .input-group { display: flex; gap: 8px; margin-top: 5px; }
+        input[type="tel"] { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; outline: none; }
+        .btn { padding: 12px 20px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s; text-align: center; width: 100%; box-sizing: border-box; }
+        .btn-blue { background: #1a73e8; color: white; }
+        .btn-search { background: #1a73e8; color: white; width: auto; }
+        .btn-export { background: #34a853; color: white; margin-top: 15px; }
+        #reader { width: 100%; border-radius: 8px; overflow: hidden; background: #000; min-height: 250px; }
+        
+        /* 狀態回饋 */
+        #status-box { margin-top: 15px; padding: 15px; border-radius: 8px; text-align: center; display: none; font-weight: bold; font-size: 16px; line-height: 1.5; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .success { background: #e6f4ea; color: #1e8e3e; border: 1px solid #ceead6; }
+        .error { background: #fce8e6; color: #d93025; border: 1px solid #fad2cf; }
+        .warning { background: #fef7e0; color: #f9ab00; border: 1px solid #feefc3; }
+        .admin-section { margin-top: 30px; background: #fafafa; border: 2px dashed #ccc; }
+    </style>
+</head>
+<body>
+
+<div id="login-screen">
+    <h1>🛡️ 安全報到系統登入</h1>
+    <input type="email" id="login-email" class="login-input" placeholder="工作人員信箱">
+    <input type="password" id="login-pwd" class="login-input" placeholder="密碼">
+    <button id="btn-login" class="btn btn-blue" style="max-width: 300px;">登入系統</button>
+    <p id="login-error" style="color: red; font-size: 14px; display: none;"></p>
+</div>
+
+<div class="container" id="app-screen">
+    <div class="header-bar">
+        <span class="user-info">已登入: <span id="current-user"></span></span>
+        <button id="btn-logout" class="btn-logout">登出</button>
+    </div>
+
+    <div class="stats-bar">
+        <div class="stats-item"><div>總報名</div><div id="stat-total">-</div></div>
+        <div class="stats-item"><div>已報到</div><div id="stat-checked">-</div></div>
+        <div class="stats-item"><div>報到率</div><div id="stat-rate">-%</div></div>
+    </div>
+
+    <div class="section">
+        <h2>手動報到 (手機號碼)</h2>
+        <div class="input-group">
+            <input type="tel" id="phone-input" placeholder="請輸入參與者手機號碼">
+            <button id="btn-search" class="btn btn-search">搜尋</button>
+        </div>
+    </div>
+
+    <div class="section" style="padding: 10px;">
+        <h2 style="margin: 5px 5px 10px 5px;">掃描報到</h2>
+        <div id="reader"></div>
+        <div id="status-box"></div>
+    </div>
+
+    <div class="section admin-section">
+        <h2>管理員工具區</h2>
+        <p style="font-size: 12px; color: #666; margin-top: 0;">支援 Accupass 原生匯出之 Excel/CSV</p>
+        <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" style="width: 100%; margin-bottom: 10px;">
+        <button id="btn-export" class="btn btn-export">📥 下載報到總表</button>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, updateDoc, getDoc, collection, query, where, getDocs, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+    // ⚠️ 請填寫你的 Firebase 設定
+   const firebaseConfig = {
+  apiKey: "AIzaSyDcyw08xmoRLltif-xo4dDQ77fZLSTsEkQ",
+  authDomain: "accupaa-checkin.firebaseapp.com",
+  projectId: "accupaa-checkin",
+  storageBucket: "accupaa-checkin.firebasestorage.app",
+  messagingSenderId: "684875999446",
+  appId: "1:684875999446:web:611a8765805b6505c80177"
+};
+
+
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    let html5QrCode;
+
+    // ==========================================
+    // 身份驗證邏輯 (Authentication)
+    // ==========================================
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'block';
+            document.getElementById('current-user').innerText = user.email;
+            initAppLogic(); // 登入成功後才初始化掃描器與監聽
+        } else {
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('app-screen').style.display = 'none';
+            if(html5QrCode) html5QrCode.stop().catch(err=>console.log(err)); // 確保登出時關閉相機
+        }
+    });
+
+    document.getElementById('btn-login').addEventListener('click', () => {
+        const email = document.getElementById('login-email').value;
+        const pwd = document.getElementById('login-pwd').value;
+        const errBox = document.getElementById('login-error');
+        signInWithEmailAndPassword(auth, email, pwd)
+            .catch((error) => { errBox.innerText = "登入失敗，請檢查帳號密碼"; errBox.style.display = 'block'; });
+    });
+
+    document.getElementById('btn-logout').addEventListener('click', () => {
+        signOut(auth);
+    });
+
+    // ==========================================
+    // 主程式邏輯 (僅在登入後執行)
+    // ==========================================
+    function initAppLogic() {
+        // 狀態回饋 UI
+        const statusBox = document.getElementById('status-box');
+        let statusTimeout;
+        window.showStatus = function(type, htmlMessage) {
+            clearTimeout(statusTimeout);
+            statusBox.className = type;
+            statusBox.innerHTML = htmlMessage;
+            statusBox.style.display = 'block';
+            if (navigator.vibrate) navigator.vibrate(type === 'success' ? 100 : [100, 50, 100]);
+            if (type !== 'error') statusTimeout = setTimeout(() => { statusBox.style.display = 'none'; }, 5000);
+        };
+
+        // 即時統計
+        onSnapshot(collection(db, "attendees"), (snapshot) => {
+            const total = snapshot.size;
+            let checked = 0;
+            snapshot.forEach(doc => { if (doc.data().checkedIn) checked++; });
+            document.getElementById('stat-total').innerText = total;
+            document.getElementById('stat-checked').innerText = checked;
+            document.getElementById('stat-rate').innerText = (total > 0 ? Math.round((checked / total) * 100) : 0) + "%";
+        });
+
+        // 報到寫入邏輯
+        async function processCheckIn(ticketId, attendeeData) {
+            if (attendeeData.checkedIn) {
+                const timeStr = attendeeData.checkInTime ? attendeeData.checkInTime.toDate().toLocaleTimeString() : '未知時間';
+                showStatus('warning', `⚠️ 重複報到！<br><span style="font-size:20px;color:#d93025;">${attendeeData.name}</span><br><span style="font-size:14px;">上次報到：${timeStr}</span>`);
+            } else {
+                try {
+                    await updateDoc(doc(db, "attendees", ticketId), { checkedIn: true, checkInTime: serverTimestamp() });
+                    showStatus('success', `✅ 報到成功<br><span style="font-size:22px;color:#0d47a1;">${attendeeData.name}</span><br><span style="font-size:14px;">${attendeeData.ticketType || ''}</span>`);
+                } catch (error) { showStatus('error', '❌ 寫入失敗，請檢查權限'); }
+            }
+        }
+
+        // 初始化掃描器
+        if(!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, async (decodedText) => {
+            try {
+                const docSnap = await getDoc(doc(db, "attendees", decodedText.trim()));
+                if (docSnap.exists()) processCheckIn(docSnap.id, docSnap.data());
+                else showStatus('error', `❌ 查無此序號: ${decodedText}`);
+            } catch (err) { showStatus('error', '讀取失敗'); }
+        }).catch(err => { showStatus('error', '請給予相機權限'); });
+
+        // 手動搜尋
+        document.getElementById('btn-search').onclick = async () => {
+            const phone = document.getElementById('phone-input').value.trim();
+            if (!phone) return alert("請輸入手機號碼");
+            showStatus('warning', '🔍 搜尋中...');
+            const q = query(collection(db, "attendees"), where("phone", "==", phone));
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) showStatus('error', '❌ 查無此手機號碼');
+            else { processCheckIn(querySnapshot.docs[0].id, querySnapshot.docs[0].data()); document.getElementById('phone-input').value = ""; }
+        };
+
+        // Accupass Excel/CSV 精準匯入
+        document.getElementById('excel-file').onchange = function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const list = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                
+                if(!confirm(`準備將 ${list.length} 筆資料匯入，確定嗎？`)) return;
+                showStatus('warning', '⏳ 資料匯入中...');
+                
+                let batch = writeBatch(db);
+                let count = 0;
+
+                for (const row of list) {
+                    // 自動對應你上傳的 Accupass 格式欄位
+                    const id = String(row['票號'] || row['取票序號'] || '').trim();
+                    if (!id) continue;
+
+                    batch.set(doc(db, "attendees", id), {
+                        name: String(row['參加人姓名'] || row['姓名'] || '未提供').trim(),
+                        phone: String(row['參加人電話'] || row['手機'] || '').trim(),
+                        ticketType: String(row['票券細節'] || row['票券名稱'] || '').trim(),
+                        checkedIn: false,
+                        checkInTime: null
+                    }, { merge: true });
+
+                    count++;
+                    if (count % 400 === 0) { await batch.commit(); batch = writeBatch(db); }
+                }
+                await batch.commit();
+                document.getElementById('excel-file').value = "";
+                showStatus('success', `✅ 成功匯入 ${count} 筆名單！`);
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        // 報表匯出
+        document.getElementById('btn-export').onclick = async () => {
+            showStatus('warning', '⏳ 正在產生報表...');
+            const querySnapshot = await getDocs(collection(db, "attendees"));
+            const reportData = [];
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                reportData.push({
+                    "票號": doc.id,
+                    "參加人姓名": data.name,
+                    "參加人電話": data.phone,
+                    "票券細節": data.ticketType,
+                    "狀態": data.checkedIn ? "已報到" : "未報到",
+                    "報到時間": data.checkInTime ? data.checkInTime.toDate().toLocaleString('zh-TW', { hour12: false }) : ""
+                });
+            });
+            const ws = XLSX.utils.json_to_sheet(reportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "報到總表");
+            XLSX.writeFile(wb, `活動報到總表_${new Date().toISOString().split('T')[0]}.xlsx`);
+            showStatus('success', '✅ 報表下載成功！');
+        };
+    }
+</script>
+</body>
+</html>
