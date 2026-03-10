@@ -195,48 +195,53 @@
         }).catch(err => { showStatus('error', '請給予相機權限'); });
 
    // ==========================================
-        // 4. 手動手機號碼搜尋 (支援 09 與 886 格式智慧轉換)
-        // ==========================================
-        document.getElementById('btn-search').onclick = async () => {
-            let phone = document.getElementById('phone-input').value.trim();
-            if (!phone) return alert("請輸入手機號碼");
-            
-            showStatus('warning', '🔍 搜尋中...');
+    // 4. 手動手機號碼搜尋 (擷取後9碼 + 跨型別搜尋)
+    // ==========================================
+    document.getElementById('btn-search').onclick = async () => {
+        const phoneInput = document.getElementById('phone-input');
+        let inputStr = phoneInput.value.trim();
+        
+        if (!inputStr) {
+            alert("請先輸入手機號碼");
+            return;
+        }
+        
+        showStatus('warning', '🔍 搜尋中...');
 
-            // --- 智慧格式轉換邏輯 ---
-            // 建立一個陣列，用來存放可能的手機格式
-            let searchPhones = [phone]; 
-            
-            if (phone.startsWith('09')) {
-                // 如果工作人員輸入 0912345678，自動補上 886912345678 一起搜
-                searchPhones.push('886' + phone.substring(1));
-            } else if (phone.startsWith('8869')) {
-                // 如果工作人員輸入 886912345678，自動補上 0912345678 一起搜
-                searchPhones.push('0' + phone.substring(3));
-            } else if (phone.startsWith('+8869')) {
-                // 防呆：如果有人輸入 +886
-                searchPhones.push('886' + phone.substring(4));
-                searchPhones.push('0' + phone.substring(4));
-            }
+        // 1. 清除雜訊：去掉空白或破折號 (萬一工作人員輸入 0912-345-678)
+        let cleanPhone = inputStr.replace(/\D/g, ''); 
+        
+        // 2. 擷取「後 9 碼」 (台灣手機號碼去掉 0 或 886 後，剛好都是 9 碼)
+        if (cleanPhone.length < 9) {
+            showStatus('error', '❌ 手機號碼長度似乎不對喔');
+            return;
+        }
+        let last9Digits = cleanPhone.slice(-9);
 
-            try {
-                // 使用 Firebase 的 "in" 語法，只要資料庫符合陣列裡的任一格式就會命中！
-                const q = query(collection(db, "attendees"), where("phone", "in", searchPhones));
-                const querySnapshot = await getDocs(q);
-                
-                if (querySnapshot.empty) {
-                    showStatus('error', '❌ 查無此手機號碼的報名紀錄');
-                } else {
-                    // 找到該用戶，執行報到
-                    const userDoc = querySnapshot.docs[0];
-                    processCheckIn(userDoc.id, userDoc.data());
-                    document.getElementById('phone-input').value = ""; // 成功後自動清空輸入框
-                }
-            } catch (error) {
-                console.error("搜尋失敗:", error);
-                showStatus('error', '❌ 搜尋失敗，請檢查網路連線');
+        // 3. 組合出所有資料庫「可能存在」的格式 (字串與數字雙管齊下)
+        let possiblePhones = [
+            '0' + last9Digits,             // 格式 A：字串 "0912345678"
+            '886' + last9Digits,           // 格式 B：字串 "886912345678"
+            Number('886' + last9Digits)    // 格式 C：數字 886912345678 (解決 Excel 匯入的型別問題！)
+        ];
+
+        try {
+            // 使用 Firebase "in" 查詢：只要符合 possiblePhones 陣列裡的「任一種」，就命中！
+            const q = query(collection(db, "attendees"), where("phone", "in", possiblePhones));
+            const querySnapshot = await getDocs(q);
+            
+            if (querySnapshot.empty) {
+                showStatus('error', '❌ 查無此手機號碼的報名紀錄');
+            } else {
+                const userDoc = querySnapshot.docs[0];
+                processCheckIn(userDoc.id, userDoc.data());
+                phoneInput.value = ""; // 成功後清空輸入框，方便下一位
             }
-        };
+        } catch (error) {
+            console.error("搜尋失敗:", error);
+            showStatus('error', '❌ 搜尋失敗，請檢查網路連線');
+        }
+    };
 
         // Accupass Excel/CSV 精準匯入
         document.getElementById('excel-file').onchange = function(e) {
